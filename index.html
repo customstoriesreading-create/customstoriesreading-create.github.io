@@ -340,7 +340,7 @@
       const currentY = e.clientY - rect.top;
 
       const x = Math.min(startX, currentX);
-      const y = Math.min(startY, currentY);
+      const y = Math.min(startY, currentY); 
       const width = Math.abs(currentX - startX);
       const height = Math.abs(currentY - startY);
 
@@ -424,24 +424,53 @@
       offCtx.drawImage(video, 0, 0, video.videoWidth, video.videoHeight);
       writeCanvasToClipboard(offCanvas, "Full Frame Copied! (⌘V)");
     });
+    
+// Native clipboard writer (iOS/iPadOS Safari & Chrome compatible)
+async function writeCanvasToClipboard(targetCanvas, successMessage) {
+  try {
+    // 1. Wrap the blob conversion in a Promise
+    const blobPromise = new Promise((resolve, reject) => {
+      targetCanvas.toBlob((blob) => {
+        if (blob) resolve(blob);
+        else reject(new Error("Canvas blob conversion failed"));
+      }, 'image/png');
+    });
 
-    // Native clipboard writer (image/png)
-    async function writeCanvasToClipboard(targetCanvas, successMessage) {
-      try {
-        targetCanvas.toBlob(async (blob) => {
-          if (!blob) {
-            showMarker("Capture error", false);
-            return;
-          }
-          await navigator.clipboard.write([
-            new ClipboardItem({ 'image/png': blob })
-          ]);
-          showMarker(successMessage, true);
-        }, 'image/png');
-      } catch (err) {
-        showMarker("Clipboard write blocked", false);
-      }
+    // 2. Pass the Promise directly into ClipboardItem synchronously inside the event chain
+    const item = new ClipboardItem({
+      'image/png': blobPromise
+    });
+
+    await navigator.clipboard.write([item]);
+    showMarker(successMessage, true);
+  } catch (err) {
+    console.error("Clipboard error:", err);
+    // Fallback if the browser still denies async write permissions
+    fallbackDownloadOrPreview(targetCanvas, successMessage);
+  }
+}
+
+// Fallback helper in case iOS blocks programmatic clipboard access
+function fallbackDownloadOrPreview(targetCanvas, label) {
+  targetCanvas.toBlob((blob) => {
+    if (!blob) return;
+    const url = URL.createObjectURL(blob);
+    
+    // Open image directly in a new tab so you can long-press -> "Copy Image" / "Save to Photos"
+    const win = window.open(url, '_blank');
+    if (win) {
+      showMarker("Opened in tab: tap & hold to copy", true);
+    } else {
+      // Trigger instant direct download if pop-up was blocked
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `capture-${Date.now()}.png`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showMarker("Downloaded PNG", true);
     }
+  }, 'image/png');
+}
 
     function showMarker(text, isSuccess) {
       statusMarker.textContent = text;
